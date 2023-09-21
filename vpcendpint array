@@ -1,0 +1,36 @@
+const eni = new custom_resources.AwsCustomResource(
+  this,
+  "DescribeNetworkInterfaces",
+  {
+    onCreate: {
+      service: "EC2",
+      action: "describeNetworkInterfaces",
+      parameters: {
+        Filters: [{
+          Name: "vpc-endpoint-id",
+          Values: [VPCEndpoints.vpcEndpointId]
+        }]
+      },
+      physicalResourceId: custom_resources.PhysicalResourceId.of(Date.now().toString()),
+    },
+    onUpdate: {
+      service: "EC2",
+      action: "describeNetworkInterfaces",
+      parameters: {
+        Filters: [{
+          Name: "vpc-endpoint-id",
+          Values: [VPCEndpoints.vpcEndpointId]
+        }]
+      },
+      physicalResourceId: custom_resources.PhysicalResourceId.of(Date.now().toString()),
+    },
+    policy: {
+      statements: [
+        new iam.PolicyStatement({
+          actions: ["ec2:DescribeNetworkInterfaces"],
+          resources: ["*"],
+        }),
+      ],
+    },
+  }
+);
