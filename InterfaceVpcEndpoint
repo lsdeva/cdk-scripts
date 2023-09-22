@@ -1,0 +1,235 @@
+/* eslint-disable prettier/prettier */
+import { Port, SubnetType, Vpc } from 'aws-cdk-lib/aws-ec2';
+import { PolicyStatement } from 'aws-cdk-lib/aws-iam';
+import { Construct } from 'constructs';
+import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
+import * as cdk from 'aws-cdk-lib';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as elbtargets from 'aws-cdk-lib/aws-elasticloadbalancingv2-targets';
+import {
+  custom_resources,
+  aws_elasticloadbalancingv2_targets,
+  Stack,
+  StackProps,
+  CfnOutput
+} from 'aws-cdk-lib';
+import { PhysicalResourceId } from 'aws-cdk-lib/custom-resources';
+import * as iam from 'aws-cdk-lib/aws-iam';
+
+import { S3 } from './constructs/S3';
+
+import { vpc_name, vpc_cidr } from '../../config.json';
+
+export class IntranetStack extends Stack {
+  public readonly vpc: Vpc;
+
+  public readonly s3: S3;
+
+  //public readonly ALB: ALB;
+
+  constructor(scope: Construct, id: string, props?: StackProps) {
+    super(scope, id, props);
+
+    this.vpc = new Vpc(this, vpc_name, {
+      cidr: vpc_cidr,
+      maxAzs: 2,
+      subnetConfiguration: [
+        {
+          cidrMask: 24,
+          name: 'ingress',
+          subnetType: SubnetType.PUBLIC,
+        },
+        // {
+        //   cidrMask: 24,
+        //   name: 'egress',
+        //   subnetType: SubnetType.PRIVATE_WITH_NAT,
+        // },
+        {
+          cidrMask: 24,
+          name: 'services',
+          subnetType: SubnetType.PRIVATE_ISOLATED,
+        },
+        {
+          cidrMask: 24,
+          name: 'rds',
+          subnetType: SubnetType.PRIVATE_ISOLATED,
+        },
+      ],
+
+    });
+
+
+/**    this.ALB = new ALB(this, 'ALB', {
+      Vpc,
+      S3,
+    });
+    */
+
+    this.s3 = new S3(this, 'S3');
+
+
+    const alb = new elbv2.ApplicationLoadBalancer(this, 'ALB', {
+      vpc: this.vpc,
+      internetFacing: false,
+      vpcSubnets: { subnetGroupName: 'services' },
+      securityGroup: new ec2.SecurityGroup(this, 'ALBSG', {
+        vpc: this.vpc,
+        allowAllOutbound: true,
+      }),
+    });
+
+    new cdk.CfnOutput(this, 'albDNS', {
+      value: alb.loadBalancerDnsName,
+    });
+
+    // const VPCEndpoints = new ec2.GatewayVpcEndpoint(this, "S3Endpoint", {
+    //   vpc: this.vpc,
+    //   service: ec2.GatewayVpcEndpointAwsService.S3,
+    // });
+
+    const VPCEndpoints = new ec2.InterfaceVpcEndpoint(
+      this,
+      'VPC S3 Interface Endpoint',
+      {
+        vpc:this.vpc,
+        service: new ec2.InterfaceVpcEndpointAwsService('s3'),
+        subnets: this.vpc.selectSubnets({
+          subnetGroupName: 'services',
+        }),
+        privateDnsEnabled: false,
+      }
+    );
+
+    const eni = new custom_resources.AwsCustomResource(
+      this,
+      "DescribeNetworkInterfaces",
+      {
+        onCreate: {
+          service: "EC2",
+          action: "describeNetworkInterfaces",
+          parameters: {
+            NetworkInterfaceIds: VPCEndpoints.vpcEndpointNetworkInterfaceIds,
+          },
+          physicalResourceId: PhysicalResourceId.of(Date.now().toString()),
+        },
+        onUpdate: {
+          service: "EC2",
+          action: "describeNetworkInterfaces",
+          parameters: {
+            NetworkInterfaceIds: VPCEndpoints.vpcEndpointNetworkInterfaceIds,
+          },
+          physicalResourceId: PhysicalResourceId.of(Date.now().toString()),
+        },
+        policy: {
+          statements: [
+            new iam.PolicyStatement({
+              actions: ["ec2:DescribeNetworkInterfaces"],
+              resources: ["*"],
+            }),
+          ],
+        },
+      }
+    );
+
+
+    // const ALBTargetGroup = new elbv2.ApplicationTargetGroup(this, 'ALBTG', {
+    //   port: 80,
+    //   targetType: elbv2.TargetType.IP,
+    //   vpc: this.vpc,
+    // });
+
+    const listener = alb.addListener('Listener', {
+      port: 80,
+      open: true,
+    });
+
+
+    /**
+     * vpc endpoint IP
+     */
+
+
+
+    // const eni = new custom_resources.AwsCustomResource(
+    //   this,
+    //   'DescribeNetworkInterfaces',
+    //   {
+    //     onCreate: {
+    //       service: 'EC2',
+    //       action: 'describeNetworkInterfaces',
+    //       parameters: {
+    //         NetworkInterfaceIds: VPCEndpoints.vpcEndpointNetworkInterfaceIds,
+    //       },
+    //       physicalResourceId: PhysicalResourceId.of(Date.now().toString()),
+    //     },
+    //     onUpdate: {
+    //       service: 'EC2',
+    //       action: 'describeNetworkInterfaces',
+    //       parameters: {
+    //         NetworkInterfaceIds: VPCEndpoints.vpcEndpointNetworkInterfaceIds,
+    //       },
+    //       physicalResourceId: PhysicalResourceId.of(Date.now().toString()),
+    //     },
+    //     policy: {
+    //       statements: [
+    //         new iam.PolicyStatement({
+    //           actions: ['ec2:DescribeNetworkInterfaces'],
+    //           resources: ['*'],
+    //         }),
+    //       ],
+    //     },
+    //   },
+    // );
+    //listener.addTargets();
+
+    // listener.addRedirectResponse('RedirectToS3', {
+    //   statusCode: 'HTTP_302',
+    //   host: S3,
+    //   path: '/{path}',
+    //   query: '{query}',
+    // });
+
+    /**
+     * get IP from vpc endpoint
+     */
+    // const ip1 = eni.getResponseField('NetworkInterfaces.0.PrivateIpAddress');
+    // const ip2 = eni.getResponseField('NetworkInterfaces.1.PrivateIpAddress');
+
+
+
+    /**
+     * add vpc endpoint as target by IP
+     */
+    // ALBTargetGroup.addTarget(
+    //   new elbtargets.IpTarget(ip1),
+    // );
+    // ALBTargetGroup.addTarget(
+    //   new aws_elasticloadbalancingv2_targets.IpTarget(ip2),
+    // );
+
+    // new cdk.CfnOutput(this, 'albDNS', {
+    //   value: alb.loadBalancerDnsName,
+    // });
+
+    /**
+     * addd target group to ALB
+     */
+    const ip1 = eni.getResponseField("NetworkInterfaces.0.PrivateIpAddress");
+    const ip2 = eni.getResponseField("NetworkInterfaces.1.PrivateIpAddress");
+
+    const ALBTargetGroup = new elbv2.ApplicationTargetGroup(this, "ALBTG", {
+      port: 80,
+      targetType: elbv2.TargetType.IP,
+      vpc: this.vpc,
+    });
+
+    ALBTargetGroup.addTarget(new aws_elasticloadbalancingv2_targets.IpTarget(ip1));
+    ALBTargetGroup.addTarget(new aws_elasticloadbalancingv2_targets.IpTarget(ip2));
+
+
+    listener.addTargetGroups('s3_vpce', {
+      targetGroups: [ALBTargetGroup],
+    });
+    
+  }
+}
