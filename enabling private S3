@@ -1,0 +1,42 @@
+//enabling private S3 and APIGW access via ALB https://aws.amazon.com/blogs/networking-and-content-delivery/hosting-internal-https-static-websites-with-alb-s3-and-privatelink/
+
+// S3 bucket should have the same name as ALB domain name
+
+import cert = require('@aws-cdk/aws-certificatemanager');
+const certificateArn = "arn:aws:..."; //get the certificate from ARN
+const certificate = cert.Certificate.fromCertificateArn(this, 'CertificateImported', certificateArn);
+const domainName = "alb.domain.name";
+
+ // listeners
+const https = alb.addListener('https', {
+    port: 443,
+    protocol: ApplicationProtocol.HTTPS,
+    certificates: [certificate],
+});
+
+
+
+this.web_bucket = new Bucket(scope, 'WebBucket', {
+  bucketName: domainName,
+  publicReadAccess: false,
+  removalPolicy: RemovalPolicy.DESTROY,
+  blockPublicAccess: BlockPublicAccess.BLOCK_ACLS,
+  accessControl: BucketAccessControl.BUCKET_OWNER_FULL_CONTROL,
+  autoDeleteObjects: true,
+});
+
+this.S3vpcEndpoint = vpc.addInterfaceEndpoint('APIGWEP', {
+  service: ec2.InterfaceVpcEndpointAwsService.S3,
+  subnets: vpc.selectSubnets({
+    subnetGroupName: 'private_ingress',
+  }),
+});
+
+//attach VPCE policy
+// ALB TG create with S3vpcEndpoint IPs
+
+ listener.addTargetGroups('S3vpceTG_vpce', {
+    targetGroups: [S3vpceTG_vpce],
+  });
+
+
