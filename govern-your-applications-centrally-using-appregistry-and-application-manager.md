@@ -1,4 +1,5 @@
 1. AWS AppConfig
+	AWS AppConfig is a feature of AWS Systems Manager that helps you increase your software deployment velocity and confidence. Providing dynamic configuration and feature flagging, AppConfig is a tool that decouples your feature releases from code deployments. You can create new features and push the code to production with the new feature hidden behind. 
 2. AWS CloudFormation
 3. AWS CloudTrail
 4. Amazon CloudWatch
